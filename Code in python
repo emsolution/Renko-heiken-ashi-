@@ -1,0 +1,71 @@
+import pandas as pd
+from datetime import datetime
+import yfinance as yf
+import matplotlib.pyplot as plt
+from matplotlib.dates import date2num
+
+def calculate_renko_bricks(data, renko_box_size):
+    renko_bricks = []
+    current_brick = data['Close'].iloc[0]
+
+    for i in range(1, len(data)):
+        previous_brick = renko_bricks[-1] if renko_bricks else current_brick
+        price_diff = data['Close'].iloc[i] - previous_brick
+
+        if abs(price_diff) >= renko_box_size:
+            num_bricks = int(abs(price_diff) // renko_box_size)
+            brick_direction = 1 if price_diff > 0 else -1
+
+            for _ in range(num_bricks):
+                current_brick += renko_box_size * brick_direction
+                renko_bricks.append(current_brick)
+
+    return renko_bricks
+
+def calculate_kc(data, atr_period, atr_multiplier):
+    data['TR'] = data[['High', 'Low', 'Close']].apply(lambda x: max(x) - min(x), axis=1)
+    data['ATR'] = data['TR'].rolling(atr_period).mean()
+    data['UpperBand'] = data['Close'] + (data['ATR'] * atr_multiplier)
+    data['LowerBand'] = data['Close'] - (data['ATR'] * atr_multiplier)
+    return data
+
+# Fetch historical price data using yfinance
+symbol = "^DJI"  # Symbol for US30 index
+end_date = datetime.now().strftime("%Y-%m-%d")
+start_date = (datetime.now() - pd.DateOffset(days=300)).strftime("%Y-%m-%d")
+data = yf.download(symbol, start=start_date, end=end_date, interval="1d")
+
+# Calculate Renko bricks
+renko_box_size = 100  # Adjust the renko box size as desired
+renko_bricks = calculate_renko_bricks(data, renko_box_size)
+
+# Convert dates to numerical format
+x_values = date2num(data.index)
+y_values = renko_bricks[:len(x_values)]
+
+# Calculate Keltner Channel (KC) based on Renko bricks
+atr_period = 14  # ATR period for KC calculation
+atr_multiplier = 2.0  # Multiplier for KC bands
+data = calculate_kc(data, atr_period, atr_multiplier)
+
+# Create the plot
+fig, ax = plt.subplots()
+
+# Plot Renko bricks
+ax.plot_date(x_values, y_values, color='black', linewidth=2, label='Renko Bricks')
+
+# Plot Keltner Channel (KC)
+ax.plot_date(x_values, data['UpperBand'], color='blue', linestyle='--', linewidth=1, label='KC Upper Band')
+ax.plot_date(x_values, data['LowerBand'], color='red', linestyle='--', linewidth=1, label='KC Lower Band')
+ax.fill_between(x_values, data['UpperBand'], data['LowerBand'], alpha=0.2, facecolor='gray', label='KC Channel')
+
+# Set plot title and labels
+plt.title("Renko Bricks with Keltner Channel - US30")
+plt.xlabel("Date")
+plt.ylabel("Price")
+
+# Display legend
+plt.legend()
+
+# Show the plot
+plt.show()
