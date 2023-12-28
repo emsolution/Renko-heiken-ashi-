@@ -1,0 +1,111 @@
+#property copyright "Your Name"
+#property link      "www.yourwebsite.com"
+
+// Include necessary libraries
+#include <Trade\Trade.mqh>
+#include <ChartObjects\ChartObjectsLabels.mqh>
+
+// Define input parameters
+input int RenkoBoxSize = 100;
+input int ATRPeriod = 14;
+input double ATRMultiplier = 2.0;
+
+// Define global variables
+CArrayDouble renkoBricks;
+double upperBand[], lowerBand[];
+
+// Calculate Renko bricks based on close prices
+void CalculateRenkoBricks(const double& close[])
+{
+   ArrayResize(renkoBricks, 0);
+   double currentBrick = close[0];
+
+   for (int i = 1; i < ArraySize(close); i++)
+   {
+      double previousBrick = ArraySize(renkoBricks) > 0 ? renkoBricks[ArraySize(renkoBricks) - 1] : currentBrick;
+      double priceDiff = close[i] - previousBrick;
+
+      if (MathAbs(priceDiff) >= RenkoBoxSize)
+      {
+         int numBricks = (int)MathAbs(priceDiff) / RenkoBoxSize;
+         int brickDirection = priceDiff > 0 ? 1 : -1;
+
+         for (int j = 0; j < numBricks; j++)
+         {
+            currentBrick += RenkoBoxSize * brickDirection;
+            ArrayResize(renkoBricks, ArraySize(renkoBricks) + 1);
+            renkoBricks[ArraySize(renkoBricks) - 1] = currentBrick;
+         }
+      }
+   }
+}
+
+// Calculate Keltner Channel (KC) based on Renko bricks
+void CalculateKC(const double& close[], const double& high[], const double& low[])
+{
+   ArrayResize(upperBand, 0);
+   ArrayResize(lowerBand, 0);
+
+   double tr[], atr[];
+   ArrayResize(tr, ArraySize(close));
+   ArrayResize(atr, ArraySize(close));
+
+   for (int i = ATRPeriod; i < ArraySize(close); i++)
+   {
+      double trueRange = MathMax(high[i] - low[i], MathMax(MathAbs(high[i] - close[i - 1]), MathAbs(low[i] - close[i - 1])));
+      tr[i] = trueRange;
+
+      double atrSum = 0.0;
+      for (int j = i - ATRPeriod + 1; j <= i; j++)
+         atrSum += tr[j];
+      atr[i] = atrSum / ATRPeriod;
+
+      upperBand[i] = close[i] + atr[i] * ATRMultiplier;
+      lowerBand[i] = close[i] - atr[i] * ATRMultiplier;
+   }
+}
+
+// Custom OnCalculate function
+void OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime& time[],
+                const double& open[],
+                const double& high[],
+                const double& low[],
+                const double& close[],
+                const long& tick_volume[],
+                const long& volume[],
+                const int& spread[])
+{
+   // Calculate Renko bricks and KC
+   CalculateRenkoBricks(close);
+   CalculateKC(close, high, low);
+
+   // Plot Renko bricks
+   for (int i = 0; i < ArraySize(renkoBricks); i++)
+   {
+      datetime brickTime = TimeCurrent() + i * PeriodSeconds() * 60;
+      string labelName = "RenkoBrick" + IntegerToString(i);
+      ObjectCreate(0, labelName, OBJ_LABEL, 0, brickTime, renkoBricks[i]);
+      ObjectSetString(0, labelName, OBJPROP_TEXT, "▀");
+   }
+
+   // Plot KC upper and lower bands
+   for (int i = ATRPeriod; i < ArraySize(close); i++)
+   {
+      datetime bandTime = time[i];
+      string upperBandName = "UpperBand" + IntegerToString(i);
+      string lowerBandName = "LowerBand" + IntegerToString(i);
+      string channelName = "Channel" + IntegerToString(i);
+
+      ObjectCreate(0, upperBandName, OBJ_HLINE, 0, bandTime, upperBand[i]);
+      ObjectSetInteger(0, upperBandName, OBJPROP_COLOR, clrBlue);
+      ObjectCreate(0, lowerBandName, OBJ_HLINE, 0, bandTime, lowerBand[i]);
+      ObjectSetInteger(0, lowerBandName, OBJPROP_COLOR, clrRed);
+      ObjectCreate(0, channelName, OBJ_CHANNEL, 0, bandTime, 0);
+      ObjectSetInteger(0, channelName, OBJPROP_COLOR, clrGray);
+           ObjectSetInteger(0, channelName, OBJPROP_STYLE, STYLE_DASH);
+      ObjectSetInteger(0, channelName, OBJPROP_WIDTH, 1);
+      ObjectSetDouble(0, channelName, OBJPROP_PRICE1, upperBand[i]);
+      ObjectSetDouble(0, channelName, OBJPROP_PRICE2, lowerBand[i]);
+   }
